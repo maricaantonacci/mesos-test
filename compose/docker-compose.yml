@@ -1,41 +1,45 @@
-version: '3'
+version: '3.7'
 services:
   zookeeper:
     image: indigodatacloud/zookeeper
-    network_mode: host
     environment:
       - MYID=1
       - SERVERS=localhost
-
-
-  mesos_master:
-    image: indigodatacloud/mesos-master
-    network_mode: host
+    ports:
+     - "2181:2181"
+     - "2888:2888"
+     - "3888:3888"
+  mesosmaster:
+    image: indigodatacloud/mesos-master:1.9.0
+    ports:
+      - "5050:5050"
+    links:
+      - zookeeper:zk
     environment:
-      - MESOS_HOSTNAME=${DOCKER_IP}
-      - MESOS_IP=${DOCKER_IP}
+      - MESOS_HOSTNAME=mesosmaster
       - MESOS_CLUSTER=Mesos
-      - MESOS_ZK=zk://127.0.0.1:2181/mesos
+      - MESOS_ZK=zk://zk:2181/mesos
       - MESOS_LOG_DIR=/var/log/mesos
       - MESOS_QUORUM=1
       - MESOS_WORK_DIR=/var/lib/mesos
       - MESOS_OFFER_TIMEOUT=30secs
     depends_on:
       - zookeeper
-
-
-  slave-one:
+  mesosslave:
     image: indigodatacloud/mesos-slave
-    network_mode: host
+    ports:
+      - "5051:5051"
+    links:
+      - zookeeper:zk
+      - mesosmaster:master
     pid: host
     privileged: true
     environment:
-      MESOS_MASTER: zk://127.0.0.1:2181/mesos
+      MESOS_MASTER: zk://zk:2181/mesos
       MESOS_CONTAINERIZERS: docker,mesos
       MESOS_PORT: 5051
       MESOS_RESOURCES: ports(*):[11000-11999]
-      MESOS_HOSTNAME: ${DOCKER_IP}
-      LIBPROCESS_IP: ${DOCKER_IP}
+      MESOS_HOSTNAME: mesosslave
       MESOS_WORK_DIR: /tmp/mesos
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup
@@ -43,19 +47,21 @@ services:
       - /tmp/mesos:/tmp/mesos
     depends_on:
       - zookeeper
-      - mesos_master
-
-
+      - mesosmaster
   chronos:
-    image: indigodatacloud/chronos:indigo_2
-    network_mode: host
+    image: indigodatacloud/chronos:3.0.2_gpu
+    links:
+      - zookeeper:zk
+    ports:
+      - "4400:4400"
     environment:
-      - LIBPROCESS_IP=${DOCKER_IP}
-      - CHRONOS_HOSTNAME=${DOCKER_IP}
+      - CHRONOS_HOSTNAME=chronos
       - CHRONOS_HTTP_PORT=4400
-      - CHRONOS_MASTER=zk://127.0.0.1:2181/mesos
-      - CHRONOS_ZK_HOSTS=zk://127.0.0.1:2181
+      - CHRONOS_MASTER=zk://zk:2181/mesos
+      - CHRONOS_ZK_HOSTS=zk://zk:2181
       - CHRONOS_ZK_PATH=/chronos/state
       - CHRONOS_MESOS_FRAMEWORK_NAME=chronos
       - CHRONOS_HTTP_CREDENTIALS=admin:s3cret
-
+    depends_on:
+      - zookeeper
+      - mesosmaster
